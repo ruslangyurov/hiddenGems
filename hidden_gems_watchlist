@@ -1,0 +1,77 @@
+import yfinance as yf
+import pandas as pd
+import ta
+import smtplib
+from email.message import EmailMessage
+from datetime import datetime
+
+# === Step 1: Define your stock universe ===
+# Example small/mid-cap tickers (replace with your full list or get from screener)
+tickers = ['ZNGA', 'NIO', 'PLUG', 'FUBO', 'RBLX', 'AFRM']
+
+# === Step 2: Fetch historical data ===
+data_dict = {}
+for ticker in tickers:
+    df = yf.download(ticker, period='6mo', interval='1d')
+    if df.empty:
+        continue
+    data_dict[ticker] = df
+
+# === Step 3: Calculate technical indicators ===
+results = []
+for ticker, df in data_dict.items():
+    df['RSI'] = ta.momentum.RSIIndicator(df['Close']).rsi()
+    df['MACD'] = ta.trend.MACD(df['Close']).macd_diff()
+    last_close = df['Close'].iloc[-1]
+    rsi = df['RSI'].iloc[-1]
+    macd_diff = df['MACD'].iloc[-1]
+    
+    # Fetch fundamental info
+    info = yf.Ticker(ticker).info
+    market_cap = info.get('marketCap', 0)
+    avg_volume = info.get('averageVolume', 0)
+    earnings_growth = info.get('earningsQuarterlyGrowth', 0)
+    analyst_coverage = len(info.get('recommendationMean', [])) if info.get('recommendationMean') else 0
+    
+    # Scoring: simple example
+    score = 0
+    score += 5 if 30 < rsi < 50 else 0  # oversold/moderate
+    score += 5 if macd_diff > 0 else 0  # bullish momentum
+    score += 5 if market_cap < 2e9 else 0  # small-cap bonus
+    score += 5 if earnings_growth and earnings_growth > 0 else 0
+    score += 5 if analyst_coverage < 5 else 0  # low coverage
+    
+    results.append({
+        'Ticker': ticker,
+        'LastClose': last_close,
+        'RSI': rsi,
+        'MACD_Diff': macd_diff,
+        'MarketCap': market_cap,
+        'AvgVolume': avg_volume,
+        'EarningsGrowth': earnings_growth,
+        'Score': score
+    })
+
+# === Step 4: Create watchlist DataFrame and sort ===
+watchlist = pd.DataFrame(results)
+watchlist.sort_values(by='Score', ascending=False, inplace=True)
+watchlist.to_csv('hidden_gems_watchlist.csv', index=False)
+
+# === Step 5: Email the watchlist ===
+EMAIL_ADDRESS = 'your_email@gmail.com'
+EMAIL_PASSWORD = 'your_email_app_password'  # Use App Password for Gmail
+
+msg = EmailMessage()
+msg['Subject'] = f'Hidden Gems Watchlist - {datetime.now().strftime("%Y-%m-%d")}'
+msg['From'] = EMAIL_ADDRESS
+msg['To'] = EMAIL_ADDRESS
+msg.set_content('Attached is today’s hidden gems stock watchlist.')
+
+with open('hidden_gems_watchlist.csv', 'rb') as f:
+    msg.add_attachment(f.read(), maintype='application', subtype='csv', filename='hidden_gems_watchlist.csv')
+
+with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+    smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
+    smtp.send_message(msg)
+
+print("Watchlist emailed successfully!")

@@ -1,23 +1,29 @@
 import yfinance as yf
 import pandas as pd
 import ta
-import smtplib
-from email.message import EmailMessage
 from datetime import datetime
+import argparse
+import os
+
+# === Command line argument for base file name ===
+parser = argparse.ArgumentParser()
+parser.add_argument('--file', type=str, default='hidden_gems_watchlist.csv', help='Base filename for output')
+args = parser.parse_args()
+
+base_filename = args.file
 
 # === Step 1: Define your stock universe ===
-# Example small/mid-cap tickers (replace with your full list or get from screener)
-tickers = ['ZNGA', 'NIO', 'PLUG', 'FUBO', 'RBLX', 'AFRM']
+tickers = ['ZNGA', 'NIO', 'PLUG', 'FUBO', 'RBLX', 'AFRM']  # replace with full list
 
 # === Step 2: Fetch historical data ===
 data_dict = {}
 for ticker in tickers:
-    df = yf.download(ticker, period='6mo', interval='1d')
+    df = yf.download(ticker, period='6mo', interval='1d', progress=False)
     if df.empty:
         continue
     data_dict[ticker] = df
 
-# === Step 3: Calculate technical indicators ===
+# === Step 3: Calculate technical indicators and fundamentals ===
 results = []
 for ticker, df in data_dict.items():
     df['RSI'] = ta.momentum.RSIIndicator(df['Close']).rsi()
@@ -52,26 +58,19 @@ for ticker, df in data_dict.items():
         'Score': score
     })
 
-# === Step 4: Create watchlist DataFrame and sort ===
+# === Step 4: Create DataFrame and sort ===
 watchlist = pd.DataFrame(results)
 watchlist.sort_values(by='Score', ascending=False, inplace=True)
-watchlist.to_csv('hidden_gems_watchlist.csv', index=False)
 
-# === Step 5: Email the watchlist ===
-EMAIL_ADDRESS = 'your_email@gmail.com'
-EMAIL_PASSWORD = 'your_email_app_password'  # Use App Password for Gmail
+# === Step 5: Save files ===
+today_str = datetime.now().strftime('%Y-%m-%d')
 
-msg = EmailMessage()
-msg['Subject'] = f'Hidden Gems Watchlist - {datetime.now().strftime("%Y-%m-%d")}'
-msg['From'] = EMAIL_ADDRESS
-msg['To'] = EMAIL_ADDRESS
-msg.set_content('Attached is today’s hidden gems stock watchlist.')
+# 1️⃣ Dated file in repo
+dated_file = f"hidden_gems_watchlist_{today_str}.csv"
+watchlist.to_csv(dated_file, index=False)
 
-with open('hidden_gems_watchlist.csv', 'rb') as f:
-    msg.add_attachment(f.read(), maintype='application', subtype='csv', filename='hidden_gems_watchlist.csv')
+# 2️⃣ Latest file for email
+latest_file = base_filename.replace('.csv', '_latest.csv')
+watchlist.to_csv(latest_file, index=False)
 
-with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-    smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
-    smtp.send_message(msg)
-
-print("Watchlist emailed successfully!")
+print(f"Watchlist saved as:\n- Dated: {dated_file}\n- Latest: {latest_file}")
